@@ -55,6 +55,23 @@ def _summarize_failures(failures: list[str]) -> str:
     return preview
 
 
+def _is_invalid_api_key_error(status: int, detail: str) -> bool:
+    if status == 401:
+        return True
+    if status != 403:
+        return False
+    lowered = detail.lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "api key not valid",
+            "invalid api key",
+            "api_key_invalid",
+            "key is invalid",
+        )
+    )
+
+
 class GeminiClient(LLMClient):
     """Google Gemini client with multi-key and multi-model fallback."""
 
@@ -129,14 +146,25 @@ class GeminiClient(LLMClient):
                                 break
 
                             if status in {401, 403}:
-                                msg = f"Invalid API key #{key_index + 1} ({status})"
-                                failures.append(msg)
-                                invalid_key_indexes.add(key_index)
-                                logger.warning(
-                                    "Gemini auth error key=#%s: %s",
-                                    key_index + 1,
-                                    detail,
-                                )
+                                if _is_invalid_api_key_error(status, detail):
+                                    msg = f"Invalid API key #{key_index + 1} ({status})"
+                                    failures.append(msg)
+                                    invalid_key_indexes.add(key_index)
+                                    logger.warning(
+                                        "Gemini auth error key=#%s: %s",
+                                        key_index + 1,
+                                        detail,
+                                    )
+                                else:
+                                    msg = f"Access denied for `{model}` (key #{key_index + 1}, {status})"
+                                    failures.append(msg)
+                                    unavailable_models.add(model)
+                                    logger.warning(
+                                        "Gemini permission error model=%s key=#%s: %s",
+                                        model,
+                                        key_index + 1,
+                                        detail,
+                                    )
                                 break
 
                             if status in {500, 502, 503, 504}:
@@ -154,17 +182,19 @@ class GeminiClient(LLMClient):
                             break
 
         tried_models = ", ".join(f"`{m}`" for m in self.models)
-        valid_keys = len(self.api_keys) - len(invalid_key_indexes)
         summary = _summarize_failures(failures)
         hint = ""
-        if invalid_key_indexes:
+        if invalid_key_indexes and len(invalid_key_indexes) == len(self.api_keys):
             bad = ", ".join(f"#{i + 1}" for i in sorted(invalid_key_indexes))
             hint = (
-                f" Remove or replace invalid key(s) {bad} in GEMINI_API_KEYS on Render. "
-                "Keys must come from https://aistudio.google.com/apikey."
+                f" All configured API keys appear invalid ({bad}). "
+                "Create keys at https://aistudio.google.com/apikey and update GEMINI_API_KEYS on Render."
             )
-        elif valid_keys == 0:
-            hint = " All configured API keys were rejected."
+        elif failures and not any("OK" in f for f in failures):
+            hint = (
+                " Your keys may work on fallback models only — set "
+                "GEMINI_MODELS=gemini-2.5-flash,gemini-2.5-flash-lite if Gemini 3.x returns access denied."
+            )
 
         return _fallback_response(
             user_prompt,
