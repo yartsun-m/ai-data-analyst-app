@@ -12,10 +12,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODELS = (
     "gemini-3.5-flash,"
-    "gemini-3.0-flash,"
+    "gemini-3.1-flash-lite,"
     "gemini-2.5-flash,"
-    "gemini-2.5-flash-lite,"
-    "gemini-3.1-flash-lite"
+    "gemini-2.5-flash-lite"
 )
 
 
@@ -46,6 +45,16 @@ def _parse_retry_after(response: httpx.Response) -> float | None:
         return None
 
 
+def _summarize_failures(failures: list[str]) -> str:
+    unique = list(dict.fromkeys(failures))
+    if len(unique) == 1:
+        return unique[0]
+    preview = "; ".join(unique[:4])
+    if len(unique) > 4:
+        preview += f"; +{len(unique) - 4} more"
+    return preview
+
+
 class GeminiClient(LLMClient):
     """Google Gemini client with multi-key and multi-model fallback."""
 
@@ -64,12 +73,20 @@ class GeminiClient(LLMClient):
         if not self.models:
             return _fallback_response(user_prompt, "No Gemini models configured.")
 
-        last_error: str | None = None
+        failures: list[str] = []
+        invalid_key_indexes: set[int] = set()
+        unavailable_models: set[str] = set()
         primary_model = self.models[0]
 
         async with httpx.AsyncClient(timeout=90.0) as client:
             for model in self.models:
+                if model in unavailable_models:
+                    continue
+
                 for key_index, api_key in enumerate(self.api_keys):
+                    if key_index in invalid_key_indexes:
+                        continue
+
                     for attempt in range(settings.gemini_max_retries):
                         try:
                             answer = await self._generate(
@@ -90,32 +107,41 @@ class GeminiClient(LLMClient):
                             detail = _extract_error_message(exc.response)
 
                             if status == 404:
-                                last_error = f"Model `{model}` not found"
+                                msg = f"Model `{model}` not found"
+                                failures.append(msg)
+                                unavailable_models.add(model)
                                 logger.warning("Gemini model not found: %s", model)
                                 break
 
                             if status == 429:
-                                wait = _parse_retry_after(exc.response) or (2**attempt)
-                                last_error = f"Rate limit on `{model}` (key #{key_index + 1})"
+                                msg = f"Rate limit on `{model}` (key #{key_index + 1})"
+                                failures.append(msg)
                                 logger.warning(
-                                    "Gemini 429 model=%s key=#%s attempt=%s wait=%.1fs",
+                                    "Gemini 429 model=%s key=#%s attempt=%s",
                                     model,
                                     key_index + 1,
                                     attempt + 1,
-                                    wait,
                                 )
+                                wait = _parse_retry_after(exc.response) or (2**attempt)
                                 if attempt < settings.gemini_max_retries - 1:
                                     await asyncio.sleep(wait)
                                     continue
                                 break
 
                             if status in {401, 403}:
-                                last_error = f"Auth failed for key #{key_index + 1} ({status})"
-                                logger.warning("Gemini auth error key=#%s: %s", key_index + 1, detail)
+                                msg = f"Invalid API key #{key_index + 1} ({status})"
+                                failures.append(msg)
+                                invalid_key_indexes.add(key_index)
+                                logger.warning(
+                                    "Gemini auth error key=#%s: %s",
+                                    key_index + 1,
+                                    detail,
+                                )
                                 break
 
                             if status in {500, 502, 503, 504}:
-                                last_error = f"Gemini server error {status} on `{model}`"
+                                msg = f"Gemini server error {status} on `{model}`"
+                                failures.append(msg)
                                 await asyncio.sleep(2**attempt)
                                 continue
 
@@ -124,13 +150,25 @@ class GeminiClient(LLMClient):
                                 f"Gemini API error ({status}) on `{model}`: {detail}",
                             )
                         except httpx.RequestError as exc:
-                            last_error = f"Network error: {exc}"
+                            failures.append(f"Network error on `{model}` (key #{key_index + 1}): {exc}")
                             break
 
         tried_models = ", ".join(f"`{m}`" for m in self.models)
+        valid_keys = len(self.api_keys) - len(invalid_key_indexes)
+        summary = _summarize_failures(failures)
+        hint = ""
+        if invalid_key_indexes:
+            bad = ", ".join(f"#{i + 1}" for i in sorted(invalid_key_indexes))
+            hint = (
+                f" Remove or replace invalid key(s) {bad} in GEMINI_API_KEYS on Render. "
+                "Keys must come from https://aistudio.google.com/apikey."
+            )
+        elif valid_keys == 0:
+            hint = " All configured API keys were rejected."
+
         return _fallback_response(
             user_prompt,
-            f"All Gemini models/keys were rate-limited or unavailable ({last_error}). "
+            f"Gemini unavailable ({summary}).{hint} "
             f"Tried models: {tried_models} across {len(self.api_keys)} API key(s).",
         )
 

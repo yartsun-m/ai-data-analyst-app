@@ -4,10 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_GEMINI_MODELS = (
     "gemini-3.5-flash,"
-    "gemini-3.0-flash,"
+    "gemini-3.1-flash-lite,"
     "gemini-2.5-flash,"
-    "gemini-2.5-flash-lite,"
-    "gemini-3.1-flash-lite"
+    "gemini-2.5-flash-lite"
 )
 
 
@@ -37,7 +36,12 @@ class Settings(BaseSettings):
 
     @property
     def gemini_api_key_list(self) -> list[str]:
-        return [key.strip() for key in self.gemini_api_keys.split(",") if key.strip()]
+        keys: list[str] = []
+        for raw in self.gemini_api_keys.replace("\n", ",").split(","):
+            key = raw.strip().strip('"').strip("'")
+            if key and key not in keys:
+                keys.append(key)
+        return keys
 
     @property
     def gemini_model_list(self) -> list[str]:
