@@ -1,0 +1,2 @@
+# Optional: SHAP adds explainability but increases image size
+# shap==0.46.0

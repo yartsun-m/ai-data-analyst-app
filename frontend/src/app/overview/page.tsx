@@ -1,0 +1,181 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { DataTable } from "@/components/data-table";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
+import { api } from "@/lib/api";
+import { useSession } from "@/lib/session";
+
+export default function OverviewPage() {
+  const router = useRouter();
+  const {
+    sessionId,
+    profile,
+    preview,
+    cleaningReport,
+    targetColumn,
+    setProfile,
+    setCleaningReport,
+    setTargetColumn,
+  } = useSession();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionId) router.push("/");
+  }, [sessionId, router]);
+
+  if (!sessionId || !profile) {
+    return <p className="text-muted-foreground">Upload a dataset first.</p>;
+  }
+
+  const handleProfileRefresh = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.profile(sessionId, targetColumn || undefined);
+      setProfile(result.profile, result.preview);
+      setTargetColumn(result.profile.target_column);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to refresh profile");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClean = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.clean(sessionId, targetColumn || undefined);
+      setCleaningReport(result.cleaning_report);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cleaning failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight">Dataset Overview</h2>
+        <p className="mt-2 text-muted-foreground">Profiling summary, type detection, and automatic cleaning.</p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        {[
+          ["Rows", profile.shape.rows],
+          ["Columns", profile.shape.columns],
+          ["Missing Cells", profile.total_missing_cells],
+          ["Duplicates", profile.duplicate_rows],
+        ].map(([label, value]) => (
+          <Card key={label as string}>
+            <CardHeader className="pb-2">
+              <CardDescription>{label as string}</CardDescription>
+              <CardTitle className="text-2xl">{value as number}</CardTitle>
+            </CardHeader>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Target Column (optional)</CardTitle>
+          <CardDescription>Select a target to enable ML task detection.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <Select
+            value={targetColumn || ""}
+            onChange={(e) => setTargetColumn(e.target.value || null)}
+            className="max-w-xs"
+          >
+            <option value="">None</option>
+            {profile.columns.map((col) => (
+              <option key={col} value={col}>
+                {col}
+              </option>
+            ))}
+          </Select>
+          <Button variant="outline" onClick={handleProfileRefresh} disabled={loading}>
+            Update Profile
+          </Button>
+          <Button onClick={handleClean} disabled={loading}>
+            Run Cleaning Pipeline
+          </Button>
+        </CardContent>
+      </Card>
+
+      {profile.task_type && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Detected ML Task</CardTitle>
+            <CardDescription>{profile.task_type}</CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Column Types</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-2 md:grid-cols-2">
+            {Object.entries(profile.column_types).map(([col, type]) => (
+              <div key={col} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                <span>{col}</span>
+                <span className="rounded bg-muted px-2 py-1 text-xs uppercase">
+                  {profile.column_roles?.[col] ? `${profile.column_roles[col]} / ` : ""}
+                  {type}
+                </span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {cleaningReport && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Cleaning Results</CardTitle>
+            <CardDescription>
+              {cleaningReport.rows_before} → {cleaningReport.rows_after} rows · {cleaningReport.columns_before} →{" "}
+              {cleaningReport.columns_after} columns
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {cleaningReport.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {preview && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Preview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DataTable rows={preview} />
+          </CardContent>
+        </Card>
+      )}
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <div className="flex gap-3">
+        <Button variant="secondary" onClick={() => router.push("/eda")}>
+          Go to EDA
+        </Button>
+        <Button onClick={() => router.push("/ml")}>Go to ML</Button>
+      </div>
+    </div>
+  );
+}
