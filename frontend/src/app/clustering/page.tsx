@@ -2,8 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import Plot from "react-plotly.js";
 
+import { PlotlyChart } from "@/components/plotly-chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -129,7 +129,7 @@ export default function ClusteringPage() {
             <CardTitle>Cluster scatter</CardTitle>
           </CardHeader>
           <CardContent>
-            <Plot {...scatterFigure} style={{ width: "100%" }} useResizeHandler />
+            <PlotlyChart figure={scatterFigure} />
           </CardContent>
         </Card>
       )}

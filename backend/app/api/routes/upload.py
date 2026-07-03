@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
@@ -15,7 +16,10 @@ router = APIRouter(tags=["upload"])
 
 @router.post("/upload")
 @limiter.limit(settings.rate_limit_upload)
-async def upload_dataset(request: Request, file: UploadFile = File(...)) -> dict:
+async def upload_dataset(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
 
