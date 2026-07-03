@@ -77,3 +77,51 @@ def test_upload_and_dataset_pagination(client, tmp_path):
     data = page.json()
     assert data["total_rows"] == 3
     assert len(data["rows"]) == 2
+
+
+def test_metrics_endpoint(client):
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    assert "http_requests" in r.text or "python" in r.text.lower()
+
+
+def test_custom_eda_and_clustering(client):
+    csv_content = "x,y,cat,target\n1,2,A,10\n2,3,A,11\n3,4,B,12\n4,5,B,13\n5,6,C,14\n"
+    files = {"file": ("eda.csv", csv_content, "text/csv")}
+    session_id = client.post("/upload", files=files).json()["session_id"]
+    client.post("/clean", json={"session_id": session_id})
+
+    eda = client.post(
+        "/eda/custom",
+        json={"session_id": session_id, "x_column": "x", "y_column": "y", "chart_type": "scatter"},
+    )
+    assert eda.status_code == 200
+    assert eda.json()["chart"]["type"] == "scatter"
+
+    cluster = client.post("/clustering", json={"session_id": session_id, "n_clusters": 2})
+    assert cluster.status_code == 200
+    assert cluster.json()["clustering"]["n_clusters"] == 2
+
+
+def test_anomaly_detection(client):
+    rows = ["a,b,c\n"] + [f"{i},{i*2},{i*3}\n" for i in range(30)]
+    files = {"file": ("anom.csv", "".join(rows), "text/csv")}
+    session_id = client.post("/upload", files=files).json()["session_id"]
+    result = client.post("/anomaly", json={"session_id": session_id, "contamination": 0.05})
+    assert result.status_code == 200
+    assert "anomaly_count" in result.json()["anomaly"]
+
+
+def test_mean_encoder_fit():
+    from app.ml.encoders import MeanEncoder
+    import pandas as pd
+    import numpy as np
+
+    X = pd.DataFrame({"color": ["red", "blue", "red", "green"]})
+    y = np.array([10.0, 20.0, 12.0, 30.0])
+    enc = MeanEncoder()
+    enc.fit(X, y)
+    out = enc.transform(X)
+    assert out.shape == (4, 1)
+    assert out[0, 0] > 0
+

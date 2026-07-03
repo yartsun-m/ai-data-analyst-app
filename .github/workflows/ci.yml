@@ -25,6 +25,30 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+  e2e-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Start API
+        working-directory: backend
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          sleep 5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run Playwright API demo
+        run: |
+          npm install
+          npx playwright install chromium
+          API_URL=http://127.0.0.1:8000 npx playwright test e2e/demo.spec.ts --grep "API"
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

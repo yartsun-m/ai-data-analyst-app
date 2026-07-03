@@ -38,6 +38,11 @@ export interface ProfileData {
     issues: string[];
     checks_run: number;
     rows_validated: number;
+    quality_report?: {
+      framework: string;
+      columns: Array<Record<string, unknown>>;
+      summary: Record<string, number>;
+    };
   };
 }
 
@@ -169,17 +174,67 @@ export const api = {
     return request<DatasetPageResponse>(`/dataset?${params}`);
   },
 
-  clean: (sessionId: string, targetColumn?: string) =>
+  clean: (sessionId: string, targetColumn?: string, outlierStrategy = "winsorize") =>
     request<{ cleaning_report: CleaningReport }>("/clean", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, target_column: targetColumn || null }),
+      body: JSON.stringify({
+        session_id: sessionId,
+        target_column: targetColumn || null,
+        outlier_strategy: outlierStrategy,
+      }),
     }),
 
   eda: (sessionId: string) =>
-    request<{ eda: { charts: ChartItem[]; insights: string[]; chart_count: number } }>(
+    request<{ eda: { charts: ChartItem[]; insights: string[]; chart_count: number; custom_charts?: ChartItem[] } }>(
       `/eda?session_id=${sessionId}`,
     ),
+
+  customEda: (
+    sessionId: string,
+    xColumn: string,
+    yColumn?: string,
+    chartType: "scatter" | "line" | "box" | "histogram" = "scatter",
+  ) =>
+    request<{ chart: ChartItem }>("/eda/custom", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        x_column: xColumn,
+        y_column: yColumn || null,
+        chart_type: chartType,
+      }),
+    }),
+
+  clustering: (sessionId: string, nClusters?: number) =>
+    request<{
+      clustering: {
+        n_clusters: number;
+        silhouette_score: number | null;
+        cluster_sizes: Record<string, number>;
+        scatter: Array<{ x: number; y: number; cluster: number }>;
+      };
+    }>("/clustering", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, n_clusters: nClusters || null }),
+    }),
+
+  anomaly: (sessionId: string, contamination = 0.05) =>
+    request<{
+      anomaly: {
+        anomaly_count: number;
+        total_rows: number;
+        anomaly_rate: number;
+        method: string;
+        anomaly_indices: number[];
+      };
+    }>("/anomaly", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, contamination }),
+    }),
 
   train: (sessionId: string, targetColumn: string, asyncMode = true) =>
     request<TrainJobResponse>("/train", {

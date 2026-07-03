@@ -37,6 +37,17 @@ class Settings(BaseSettings):
     cv_folds: int = 3
     enable_hyperparameter_tuning: bool = True
     random_state: int = 42
+    default_outlier_strategy: str = "winsorize"
+
+    # MLflow
+    mlflow_enabled: bool = True
+    mlflow_experiment_name: str = "ai-data-analyst"
+
+    @property
+    def mlflow_tracking_uri(self) -> str:
+        path = self.data_dir / "mlruns"
+        path.mkdir(parents=True, exist_ok=True)
+        return f"file:{path.resolve()}"
 
     # API
     rate_limit_default: str = "60/minute"

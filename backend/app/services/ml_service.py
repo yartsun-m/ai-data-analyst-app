@@ -32,7 +32,7 @@ except ImportError:
     HAS_XGBOOST = False
 
 from app.config import settings
-from app.ml.encoders import FrequencyEncoder
+from app.ml.encoders import FrequencyEncoder, MeanEncoder
 from app.ml.explainability import build_explainability
 from app.services.profiling_service import detect_task_type
 from app.utils.column_roles import (
@@ -157,6 +157,7 @@ def _build_preprocessor(
     onehot_cols: list[str],
     frequency_cols: list[str],
     row_count: int,
+    task_type: str = "regression",
 ) -> ColumnTransformer:
     ohe_limit = onehot_max_categories(row_count)
     transformers = []
@@ -180,7 +181,10 @@ def _build_preprocessor(
             )
         )
     if frequency_cols:
-        transformers.append(("freq", FrequencyEncoder(), frequency_cols))
+        if task_type == "regression":
+            transformers.append(("meanenc", MeanEncoder(), frequency_cols))
+        else:
+            transformers.append(("freq", FrequencyEncoder(), frequency_cols))
     if not transformers:
         raise ValueError("No usable feature columns remain for model training.")
     return ColumnTransformer(transformers=transformers)
@@ -277,7 +281,9 @@ def _train_regression(X: pd.DataFrame, y: pd.Series, test_size: float, random_st
     X, y = X.loc[mask], y.loc[mask]
 
     X, numeric_cols, onehot_cols, frequency_cols = _prepare_features(X)
-    preprocessor = _build_preprocessor(numeric_cols, onehot_cols, frequency_cols, len(X))
+    preprocessor = _build_preprocessor(
+        numeric_cols, onehot_cols, frequency_cols, len(X), task_type="regression"
+    )
 
     models = {
         "linear_regression": LinearRegression(),
@@ -299,7 +305,9 @@ def _train_classification(X: pd.DataFrame, y: pd.Series, test_size: float, rando
     y_encoded = pd.Series(label_encoder.fit_transform(y.astype(str)))
 
     X, numeric_cols, onehot_cols, frequency_cols = _prepare_features(X)
-    preprocessor = _build_preprocessor(numeric_cols, onehot_cols, frequency_cols, len(X))
+    preprocessor = _build_preprocessor(
+        numeric_cols, onehot_cols, frequency_cols, len(X), task_type="classification"
+    )
 
     models: dict[str, Any] = {
         "logistic_regression": LogisticRegression(max_iter=1000),

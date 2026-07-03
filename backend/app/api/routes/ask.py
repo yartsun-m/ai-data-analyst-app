@@ -10,7 +10,7 @@ from app.config import settings
 from app.middleware.rate_limit import limiter
 from app.services.analysis_orchestrator import analysis_orchestrator
 from app.llm.client import get_llm_client
-from app.llm.context_builder import SYSTEM_PROMPT, build_llm_context
+from app.llm.context_builder import SYSTEM_PROMPT
 from app.utils.storage import session_store
 
 router = APIRouter(tags=["ask"])
@@ -41,18 +41,7 @@ async def ask_question(request: Request, payload: AskRequest):
 
 
 async def _stream_answer(session, question: str):
-    df = session_store.get_active_df(session)
-    explainability = (session.ml_results or {}).get("explainability")
-    context = build_llm_context(
-        df=df,
-        profile=session.profile,
-        cleaning_report=session.cleaning_report,
-        eda=session.eda,
-        ml_results=session.ml_results,
-        explainability=explainability,
-        question=question,
-        chat_history=session.chat_history,
-    )
+    context = analysis_orchestrator.build_ask_context(session, question)
     client = get_llm_client()
     full_answer: list[str] = []
     async for chunk in client.stream_chat(SYSTEM_PROMPT, context):

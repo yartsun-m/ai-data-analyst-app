@@ -27,6 +27,7 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [outlierStrategy, setOutlierStrategy] = useState("winsorize");
 
   useEffect(() => {
     if (!sessionId) router.push("/");
@@ -54,7 +55,7 @@ export default function OverviewPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await api.clean(sessionId, targetColumn || undefined);
+      const result = await api.clean(sessionId, targetColumn || undefined, outlierStrategy);
       setCleaningReport(result.cleaning_report);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cleaning failed");
@@ -110,6 +111,15 @@ export default function OverviewPage() {
           <Button variant="outline" onClick={() => api.exportDataset(sessionId, cleaningReport ? "cleaned" : "raw", filename ?? undefined)}>
             Export CSV
           </Button>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">Outlier treatment</label>
+            <Select value={outlierStrategy} onChange={(e) => setOutlierStrategy(e.target.value)}>
+              <option value="none">None</option>
+              <option value="winsorize">Winsorize (1–99%)</option>
+              <option value="clip">Clip (IQR)</option>
+              <option value="remove">Remove (IQR)</option>
+            </Select>
+          </div>
           <Button onClick={handleClean} disabled={loading}>
             Run Cleaning Pipeline
           </Button>
@@ -132,6 +142,13 @@ export default function OverviewPage() {
                   <li key={issue}>{issue}</li>
                 ))}
               </ul>
+            </CardContent>
+          )}
+          {profile.validation_report.quality_report?.summary && (
+            <CardContent className="border-t pt-4 text-sm text-muted-foreground">
+              Quality summary: {profile.validation_report.quality_report.summary.total_columns} columns ·{" "}
+              {profile.validation_report.quality_report.summary.columns_with_high_missing} high-missing ·{" "}
+              {profile.validation_report.quality_report.summary.identifier_like_columns} identifier-like
             </CardContent>
           )}
         </Card>

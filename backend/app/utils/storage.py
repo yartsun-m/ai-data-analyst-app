@@ -29,6 +29,9 @@ class DatasetSession:
     ml_results: dict[str, Any] | None = None
     dashboard: dict[str, Any] | None = None
     validation_report: dict[str, Any] | None = None
+    clustering: dict[str, Any] | None = None
+    anomaly: dict[str, Any] | None = None
+    rag_chunks: list[dict[str, str]] = field(default_factory=list)
     chat_history: list[dict[str, str]] = field(default_factory=list)
     model_path: Path | None = None
 
@@ -66,6 +69,9 @@ class SessionStore:
             ml_results=row.get("ml_results"),
             dashboard=row.get("dashboard"),
             validation_report=row.get("validation_report"),
+            clustering=row.get("clustering"),
+            anomaly=row.get("anomaly"),
+            rag_chunks=row.get("rag_chunks") or [],
             chat_history=row.get("chat_history") or [],
             model_path=Path(row["model_path"]) if row.get("model_path") else None,
         )
@@ -88,6 +94,9 @@ class SessionStore:
                 "ml_results": session.ml_results,
                 "dashboard": session.dashboard,
                 "validation_report": session.validation_report,
+                "clustering": session.clustering,
+                "anomaly": session.anomaly,
+                "rag_chunks": session.rag_chunks or None,
                 "chat_history": session.chat_history,
             }
         )

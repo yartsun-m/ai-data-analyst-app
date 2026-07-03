@@ -10,11 +10,13 @@ Production-style full-stack app: upload any tabular dataset (CSV/Excel), profile
 
 | Area | Capabilities |
 |------|----------------|
-| **Data** | Upload, type/role detection, Pandera validation, cleaning, paginated spreadsheet viewer, CSV export |
-| **EDA** | Plotly histograms, correlation heatmap, boxplots, category bars, time series |
-| **ML** | AutoML (LR, RF, XGBoost), 3-fold CV, RandomizedSearch tuning on RF, SHAP/coefficients, residual diagnostics, model persistence, `/predict` |
+| **Data** | Upload, type/role detection, Pandera + **rich quality report**, cleaning with **outlier treatment**, paginated spreadsheet viewer, CSV export |
+| **EDA** | Plotly histograms, correlation heatmap, boxplots, category bars, time series, **interactive custom charts** |
+| **ML** | AutoML (LR, RF, XGBoost), 3-fold CV, RandomizedSearch tuning on RF, SHAP/coefficients, residual diagnostics, model persistence, `/predict`, **mean encoding**, **MLflow** |
 | **LLM** | Gemini multi-key fallback, conversation memory, streaming chat (SSE), context from stats only |
-| **Ops** | SQLite session persistence, background training jobs, structured logging, rate limiting, CI tests |
+| **Ops** | SQLite session persistence, background training jobs, structured logging, rate limiting, Prometheus `/metrics`, Docker healthchecks, CI + Playwright E2E |
+| **MLOps** | MLflow experiment tracking (local file store), mean encoding, outlier treatment, clustering, anomaly detection |
+| **AI** | LLM tool calling (stats/correlations/ML), keyword RAG over artifacts, streaming chat |
 
 ## Architecture
 
@@ -89,8 +91,11 @@ docker compose up --build
 | GET | `/profile` | Profile (optional `target_column`) |
 | GET | `/dataset` | Paginated dataset viewer |
 | GET | `/export` | Download raw/cleaned CSV |
-| POST | `/clean` | Cleaning pipeline |
+| POST | `/clean` | Cleaning pipeline (`outlier_strategy`: none/clip/winsorize/remove) |
 | GET | `/eda` | EDA charts |
+| POST | `/eda/custom` | Interactive chart (x/y columns) |
+| POST | `/clustering` | K-Means + PCA scatter |
+| POST | `/anomaly` | Isolation Forest detection |
 | POST | `/train` | Start async training (`async_mode: true`) |
 | GET | `/train/status` | Poll training job |
 | POST | `/predict` | Score rows with saved model |
@@ -99,6 +104,9 @@ docker compose up --build
 | GET | `/report` | HTML report download |
 | GET | `/health` | Health check |
 | GET | `/health/llm` | Gemini key probe |
+| GET | `/metrics` | Prometheus metrics |
+
+See also: [Case study — negative R² on products-1000](docs/CASE_STUDY.md)
 
 ## Environment Variables
 
@@ -124,9 +132,14 @@ docker compose up --build
 cd backend
 pip install -r requirements-dev.txt
 pytest -q
+
+# Playwright API E2E (backend must be running)
+npm install
+npx playwright install chromium
+API_URL=http://localhost:8000 npm run test:e2e
 ```
 
-CI runs backend pytest + frontend build on every push to `main`.
+CI runs backend pytest, Playwright API demo, and frontend build on every push to `main`.
 
 ## Deployment
 

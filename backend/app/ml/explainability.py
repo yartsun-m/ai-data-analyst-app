@@ -179,12 +179,14 @@ def _scores_to_feature_list(names: list[str], scores: np.ndarray) -> list[dict[s
 
 def _source_column(feature_name: str) -> str:
     name = feature_name
-    for prefix in ("num__", "cat__", "freq__"):
+    for prefix in ("num__", "cat__", "freq__", "meanenc__"):
         if name.startswith(prefix):
             name = name[len(prefix) :]
             break
     if name.endswith("_freq"):
         return name[: -len("_freq")]
+    if name.endswith("_meanenc"):
+        return name[: -len("_meanenc")]
     # One-hot: column name is everything before the last segment for known patterns
     # e.g. Category_Fitness Equipment -> Category
     if "_" in name:
@@ -193,11 +195,13 @@ def _source_column(feature_name: str) -> str:
 
 
 def _clean_feature_name(name: str) -> str:
-    for prefix in ("num__", "cat__", "freq__"):
+    for prefix in ("num__", "cat__", "freq__", "meanenc__"):
         if name.startswith(prefix):
             name = name[len(prefix) :]
     if name.endswith("_freq"):
         name = name[: -len("_freq")]
+    if name.endswith("_meanenc"):
+        name = name[: -len("_meanenc")]
     return name.replace("_", " ")
 
 

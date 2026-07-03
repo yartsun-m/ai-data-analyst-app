@@ -107,3 +107,36 @@ def _strong_correlations(corr: pd.DataFrame, threshold: float = 0.7) -> list[str
             if pd.notna(value) and abs(value) >= threshold:
                 pairs.append(f"{col_a} ↔ {col_b} ({value:.2f})")
     return pairs
+
+
+def generate_custom_chart(
+    df: pd.DataFrame,
+    x_column: str,
+    y_column: str | None = None,
+    chart_type: str = "scatter",
+) -> dict[str, Any]:
+    if x_column not in df.columns:
+        raise ValueError(f"Column '{x_column}' not found.")
+    if y_column and y_column not in df.columns:
+        raise ValueError(f"Column '{y_column}' not found.")
+
+    if chart_type == "histogram" or y_column is None:
+        series = df[x_column]
+        if pd.api.types.is_numeric_dtype(series):
+            fig = px.histogram(series.dropna(), x=x_column, nbins=30, title=f"Histogram: {x_column}")
+        else:
+            counts = series.astype(str).value_counts().head(20)
+            fig = px.bar(x=counts.index, y=counts.values, title=f"Bar: {x_column}")
+        return _chart_payload(f"custom_{x_column}", chart_type, x_column, fig)
+
+    x_series = df[x_column]
+    y_series = df[y_column]
+    if chart_type == "scatter":
+        fig = px.scatter(df, x=x_column, y=y_column, title=f"{x_column} vs {y_column}")
+    elif chart_type == "line":
+        fig = px.line(df, x=x_column, y=y_column, title=f"{x_column} vs {y_column}")
+    elif chart_type == "box":
+        fig = px.box(df, x=x_column, y=y_column, title=f"Box: {y_column} by {x_column}")
+    else:
+        fig = px.scatter(df, x=x_column, y=y_column, title=f"{x_column} vs {y_column}")
+    return _chart_payload(f"custom_{x_column}_{y_column}", chart_type, f"{x_column}/{y_column}", fig)

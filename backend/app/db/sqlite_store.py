@@ -52,6 +52,9 @@ class SQLiteDatabase:
                     dashboard TEXT,
                     chat_history TEXT,
                     validation_report TEXT,
+                    clustering TEXT,
+                    anomaly TEXT,
+                    rag_chunks TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -69,6 +72,14 @@ class SQLiteDatabase:
                 );
                 """
             )
+            self._ensure_column(conn, "sessions", "clustering", "TEXT")
+            self._ensure_column(conn, "sessions", "anomaly", "TEXT")
+            self._ensure_column(conn, "sessions", "rag_chunks", "TEXT")
+
+    def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
+        cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
     def upsert_session(self, row: dict[str, Any]) -> None:
         now = _utc_now()
@@ -78,11 +89,13 @@ class SQLiteDatabase:
                 INSERT INTO sessions (
                     session_id, filename, raw_path, target_column, task_type, model_path,
                     column_types, profile, cleaning_report, eda, ml_results, dashboard,
-                    chat_history, validation_report, created_at, updated_at
+                    chat_history, validation_report, clustering, anomaly, rag_chunks,
+                    created_at, updated_at
                 ) VALUES (
                     :session_id, :filename, :raw_path, :target_column, :task_type, :model_path,
                     :column_types, :profile, :cleaning_report, :eda, :ml_results, :dashboard,
-                    :chat_history, :validation_report, :created_at, :updated_at
+                    :chat_history, :validation_report, :clustering, :anomaly, :rag_chunks,
+                    :created_at, :updated_at
                 )
                 ON CONFLICT(session_id) DO UPDATE SET
                     filename=excluded.filename,
@@ -98,6 +111,9 @@ class SQLiteDatabase:
                     dashboard=excluded.dashboard,
                     chat_history=excluded.chat_history,
                     validation_report=excluded.validation_report,
+                    clustering=excluded.clustering,
+                    anomaly=excluded.anomaly,
+                    rag_chunks=excluded.rag_chunks,
                     updated_at=excluded.updated_at
                 """,
                 {
@@ -115,6 +131,9 @@ class SQLiteDatabase:
                     "dashboard": _json_or_none(row.get("dashboard")),
                     "chat_history": _json_or_none(row.get("chat_history")),
                     "validation_report": _json_or_none(row.get("validation_report")),
+                    "clustering": _json_or_none(row.get("clustering")),
+                    "anomaly": _json_or_none(row.get("anomaly")),
+                    "rag_chunks": _json_or_none(row.get("rag_chunks")),
                     "created_at": row.get("created_at") or now,
                     "updated_at": now,
                 },
@@ -195,6 +214,9 @@ def _row_to_session_dict(row: sqlite3.Row) -> dict[str, Any]:
         "dashboard",
         "chat_history",
         "validation_report",
+        "clustering",
+        "anomaly",
+        "rag_chunks",
     ):
         if data.get(key):
             data[key] = json.loads(data[key])

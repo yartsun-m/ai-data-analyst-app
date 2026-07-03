@@ -10,6 +10,8 @@ const links = [
   { href: "/overview", label: "Overview" },
   { href: "/dataset", label: "Data" },
   { href: "/eda", label: "EDA" },
+  { href: "/clustering", label: "Clusters" },
+  { href: "/anomaly", label: "Anomalies" },
   { href: "/ml", label: "ML" },
   { href: "/chat", label: "Chat" },
   { href: "/dashboard", label: "Dashboard" },
