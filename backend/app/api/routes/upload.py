@@ -6,6 +6,7 @@ from app.config import settings
 from app.middleware.rate_limit import limiter
 from app.services.analysis_orchestrator import analysis_orchestrator
 from app.utils.data_loader import dataframe_preview
+from app.utils.json_utils import to_json_safe
 from app.utils.storage import session_store
 
 router = APIRouter(tags=["upload"])
@@ -40,10 +41,10 @@ async def upload_dataset(request: Request, file: UploadFile = File(...)) -> dict
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {exc}") from exc
 
     session_store.persist(session)
-    return {
+    return to_json_safe({
         "session_id": session.session_id,
         "filename": file.filename,
         "preview": preview,
         "columns": list(df.columns),
         "profile": profile,
-    }
+    })

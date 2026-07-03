@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.model_store import load_model_pipeline, predict_records
+from app.utils.json_utils import to_json_safe
 from app.utils.storage import session_store
 
 router = APIRouter(tags=["predict"])
@@ -32,10 +31,10 @@ def predict(payload: PredictRequest) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}") from exc
 
-    return {
+    return to_json_safe({
         "session_id": payload.session_id,
         "model": (session.ml_results or {}).get("best_model"),
         "task_type": (session.ml_results or {}).get("task_type"),
         "predictions": predictions,
         "count": len(predictions),
-    }
+    })

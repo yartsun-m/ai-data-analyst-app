@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -13,7 +11,7 @@ class CustomEdaRequest(BaseModel):
     session_id: str
     x_column: str
     y_column: str | None = None
-    chart_type: str = Field(default="scatter", pattern="^(scatter|line|box|histogram)$")
+    chart_type: str = "scatter"
 
 
 @router.get("/eda")
@@ -29,6 +27,9 @@ def get_eda(session_id: str = Query(...)) -> dict:
 
 @router.post("/eda/custom")
 def custom_eda(payload: CustomEdaRequest) -> dict:
+    if payload.chart_type not in {"scatter", "line", "box", "histogram"}:
+        raise HTTPException(status_code=400, detail="Invalid chart_type")
+
     try:
         session = session_store.get(payload.session_id)
     except KeyError as exc:

@@ -27,11 +27,11 @@ class AnalysisOrchestrator:
     def profile_session(self, session: DatasetSession, target_column: str | None = None) -> dict[str, Any]:
         df = session_store.ensure_raw_df(session)
         session.target_column = target_column or session.target_column
-        profile = profile_dataframe(df, target_column=session.target_column)
+        profile = to_json_safe(profile_dataframe(df, target_column=session.target_column))
         session.profile = profile
         session.column_types = profile["column_types"]
         session.task_type = profile.get("task_type")
-        session.validation_report = validate_dataframe(df, profile["column_types"])
+        session.validation_report = to_json_safe(validate_dataframe(df, profile["column_types"]))
         profile["validation_report"] = session.validation_report
         self._refresh_rag_index(session)
         session_store.persist(session)
@@ -50,10 +50,10 @@ class AnalysisOrchestrator:
             outlier_strategy=strategy,  # type: ignore[arg-type]
         )
         session.cleaned_df = cleaned
-        session.cleaning_report = report
+        session.cleaning_report = to_json_safe(report)
         self._refresh_rag_index(session)
         session_store.persist(session)
-        return report
+        return session.cleaning_report
 
     def eda_session(self, session: DatasetSession) -> dict[str, Any]:
         df = session_store.get_active_df(session)

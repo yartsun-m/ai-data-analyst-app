@@ -38,7 +38,7 @@ def clean_dataframe(
 
     outlier_report = _treat_outliers(cleaned, column_types, target_column, outlier_strategy)
     if outlier_report["columns_treated"]:
-        cleaned = outlier_report["dataframe"]
+        cleaned = outlier_report.pop("dataframe")
         report["outliers"] = outlier_report
         report["steps"].append(
             f"Outlier treatment ({outlier_strategy}): {len(outlier_report['columns_treated'])} numeric columns"

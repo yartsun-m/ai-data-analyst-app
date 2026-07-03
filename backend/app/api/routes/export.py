@@ -1,8 +1,5 @@
-from __future__ import annotations
-
 import io
 
-import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
@@ -14,8 +11,11 @@ router = APIRouter(tags=["export"])
 @router.get("/export")
 def export_dataset(
     session_id: str = Query(...),
-    variant: str = Query(default="raw", pattern="^(raw|cleaned)$"),
+    variant: str = Query(default="raw"),
 ) -> StreamingResponse:
+    if variant not in {"raw", "cleaned"}:
+        raise HTTPException(status_code=400, detail="variant must be raw or cleaned")
+
     try:
         session = session_store.get(session_id)
     except KeyError as exc:

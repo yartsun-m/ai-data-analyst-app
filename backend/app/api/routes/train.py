@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
@@ -7,6 +5,7 @@ from app.middleware.rate_limit import limiter
 from app.config import settings
 from app.services.analysis_orchestrator import analysis_orchestrator
 from app.services.job_service import get_job_status, submit_training_job
+from app.utils.json_utils import to_json_safe
 from app.utils.storage import session_store
 
 router = APIRouter(tags=["train"])
@@ -42,7 +41,7 @@ def train_model(request: Request, payload: TrainRequest) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Training failed: {exc}") from exc
 
-    return {"session_id": payload.session_id, "ml_results": ml_results}
+    return to_json_safe({"session_id": payload.session_id, "ml_results": ml_results})
 
 
 @router.get("/train/status")
@@ -59,4 +58,4 @@ def train_status(job_id: str = Query(...)) -> dict:
     }
     if job["status"] == "completed" and job.get("result"):
         response["ml_results"] = job["result"]
-    return response
+    return to_json_safe(response)

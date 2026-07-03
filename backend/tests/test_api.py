@@ -125,3 +125,17 @@ def test_mean_encoder_fit():
     assert out.shape == (4, 1)
     assert out[0, 0] > 0
 
+
+def test_clean_endpoint(client):
+    csv_content = "a,b,target\n1,2,10\n3,4,20\n5,6,30\n"
+    files = {"file": ("test.csv", csv_content, "text/csv")}
+    session_id = client.post("/upload", files=files).json()["session_id"]
+    clean = client.post(
+        "/clean",
+        json={"session_id": session_id, "outlier_strategy": "winsorize"},
+    )
+    assert clean.status_code == 200, clean.text
+    body = clean.json()
+    assert body["cleaning_report"]["rows_after"] == 3
+    assert "dataframe" not in str(body)
+

@@ -13,6 +13,10 @@ def to_json_safe(obj: Any) -> Any:
         return {str(k): to_json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [to_json_safe(v) for v in obj]
+    if isinstance(obj, pd.DataFrame):
+        return None
+    if isinstance(obj, pd.Series):
+        return to_json_safe(obj.tolist())
     if isinstance(obj, np.ndarray):
         return to_json_safe(obj.tolist())
     if isinstance(obj, (np.integer,)):

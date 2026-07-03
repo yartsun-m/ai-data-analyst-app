@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 
 from fastapi import APIRouter, HTTPException, Request
@@ -11,6 +9,7 @@ from app.middleware.rate_limit import limiter
 from app.services.analysis_orchestrator import analysis_orchestrator
 from app.llm.client import get_llm_client
 from app.llm.context_builder import SYSTEM_PROMPT
+from app.utils.json_utils import to_json_safe
 from app.utils.storage import session_store
 
 router = APIRouter(tags=["ask"])
@@ -37,7 +36,7 @@ async def ask_question(request: Request, payload: AskRequest):
         )
 
     result = await analysis_orchestrator.ask_session(session, payload.question)
-    return {"session_id": payload.session_id, **result}
+    return to_json_safe({"session_id": payload.session_id, **result})
 
 
 async def _stream_answer(session, question: str):

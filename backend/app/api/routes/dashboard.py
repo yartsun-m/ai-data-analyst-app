@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 from fastapi import APIRouter, HTTPException, Query
 
 from app.services.analysis_orchestrator import analysis_orchestrator
+from app.utils.json_utils import to_json_safe
 from app.utils.storage import session_store
 
 router = APIRouter(tags=["dashboard"])
@@ -16,4 +15,4 @@ def get_dashboard(session_id: str = Query(...)) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     dashboard = analysis_orchestrator.dashboard_session(session)
-    return {"session_id": session_id, "dashboard": dashboard}
+    return to_json_safe({"session_id": session_id, "dashboard": dashboard})
