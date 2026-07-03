@@ -11,10 +11,10 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODELS = (
-    "gemini-3.5-flash,"
-    "gemini-3.1-flash-lite,"
     "gemini-2.5-flash,"
-    "gemini-2.5-flash-lite"
+    "gemini-2.5-flash-lite,"
+    "gemini-3.5-flash,"
+    "gemini-3.1-flash-lite"
 )
 
 
@@ -49,9 +49,9 @@ def _summarize_failures(failures: list[str]) -> str:
     unique = list(dict.fromkeys(failures))
     if len(unique) == 1:
         return unique[0]
-    preview = "; ".join(unique[:4])
-    if len(unique) > 4:
-        preview += f"; +{len(unique) - 4} more"
+    preview = "; ".join(unique[:3])
+    if len(unique) > 3:
+        preview += f"; +{len(unique) - 3} more"
     return preview
 
 
@@ -68,8 +68,14 @@ def _is_invalid_api_key_error(status: int, detail: str) -> bool:
             "invalid api key",
             "api_key_invalid",
             "key is invalid",
+            "api key expired",
         )
     )
+
+
+def _is_referrer_blocked_error(detail: str) -> bool:
+    lowered = detail.lower()
+    return any(word in lowered for word in ("referer", "referrer", "blocked", "leaked"))
 
 
 class GeminiClient(LLMClient):
@@ -94,6 +100,7 @@ class GeminiClient(LLMClient):
         invalid_key_indexes: set[int] = set()
         unavailable_models: set[str] = set()
         primary_model = self.models[0]
+        last_detail = ""
 
         async with httpx.AsyncClient(timeout=90.0) as client:
             for model in self.models:
@@ -106,7 +113,7 @@ class GeminiClient(LLMClient):
 
                     for attempt in range(settings.gemini_max_retries):
                         try:
-                            answer = await self._generate(
+                            answer = await self._generate_with_fallbacks(
                                 client, api_key, model, system_prompt, user_prompt
                             )
                             if model != primary_model or key_index > 0:
@@ -122,6 +129,7 @@ class GeminiClient(LLMClient):
                         except httpx.HTTPStatusError as exc:
                             status = exc.response.status_code
                             detail = _extract_error_message(exc.response)
+                            last_detail = detail
 
                             if status == 404:
                                 msg = f"Model `{model}` not found"
@@ -147,24 +155,18 @@ class GeminiClient(LLMClient):
 
                             if status in {401, 403}:
                                 if _is_invalid_api_key_error(status, detail):
-                                    msg = f"Invalid API key #{key_index + 1} ({status})"
+                                    msg = f"Invalid API key #{key_index + 1}: {detail}"
                                     failures.append(msg)
                                     invalid_key_indexes.add(key_index)
-                                    logger.warning(
-                                        "Gemini auth error key=#%s: %s",
-                                        key_index + 1,
-                                        detail,
-                                    )
                                 else:
-                                    msg = f"Access denied for `{model}` (key #{key_index + 1}, {status})"
+                                    msg = f"`{model}` key #{key_index + 1}: {detail or status}"
                                     failures.append(msg)
-                                    unavailable_models.add(model)
-                                    logger.warning(
-                                        "Gemini permission error model=%s key=#%s: %s",
-                                        model,
-                                        key_index + 1,
-                                        detail,
-                                    )
+                                logger.warning(
+                                    "Gemini auth/permission error model=%s key=#%s: %s",
+                                    model,
+                                    key_index + 1,
+                                    detail,
+                                )
                                 break
 
                             if status in {500, 502, 503, 504}:
@@ -184,16 +186,20 @@ class GeminiClient(LLMClient):
         tried_models = ", ".join(f"`{m}`" for m in self.models)
         summary = _summarize_failures(failures)
         hint = ""
-        if invalid_key_indexes and len(invalid_key_indexes) == len(self.api_keys):
-            bad = ", ".join(f"#{i + 1}" for i in sorted(invalid_key_indexes))
+        if _is_referrer_blocked_error(last_detail):
             hint = (
-                f" All configured API keys appear invalid ({bad}). "
-                "Create keys at https://aistudio.google.com/apikey and update GEMINI_API_KEYS on Render."
+                " API key appears restricted for server use (referrer/IP restriction). "
+                "Create a new unrestricted key at https://aistudio.google.com/apikey."
             )
-        elif failures and not any("OK" in f for f in failures):
+        elif invalid_key_indexes and len(invalid_key_indexes) == len(self.api_keys):
             hint = (
-                " Your keys may work on fallback models only — set "
-                "GEMINI_MODELS=gemini-2.5-flash,gemini-2.5-flash-lite if Gemini 3.x returns access denied."
+                " All API keys were rejected. Re-paste GEMINI_API_KEYS in Render — "
+                "local .env changes do not update Render automatically."
+            )
+        else:
+            hint = (
+                " Check https://YOUR-BACKEND.onrender.com/health/llm for a live key probe. "
+                "Set GEMINI_MODELS=gemini-2.5-flash,gemini-2.5-flash-lite on Render."
             )
 
         return _fallback_response(
@@ -202,7 +208,7 @@ class GeminiClient(LLMClient):
             f"Tried models: {tried_models} across {len(self.api_keys)} API key(s).",
         )
 
-    async def _generate(
+    async def _generate_with_fallbacks(
         self,
         client: httpx.AsyncClient,
         api_key: str,
@@ -210,12 +216,40 @@ class GeminiClient(LLMClient):
         system_prompt: str,
         user_prompt: str,
     ) -> str:
+        try:
+            return await self._generate(
+                client, api_key, model, system_prompt, user_prompt, use_system_instruction=True
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in {400, 403}:
+                raise
+            return await self._generate(
+                client, api_key, model, system_prompt, user_prompt, use_system_instruction=False
+            )
+
+    async def _generate(
+        self,
+        client: httpx.AsyncClient,
+        api_key: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        use_system_instruction: bool = True,
+    ) -> str:
         url = f"{self.base_url}/models/{model}:generateContent"
-        payload = {
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-            "generationConfig": {"temperature": 0.2},
-        }
+        if use_system_instruction:
+            payload = {
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+                "generationConfig": {"temperature": 0.2},
+            }
+        else:
+            combined = f"{system_prompt}\n\n{user_prompt}"
+            payload = {
+                "contents": [{"role": "user", "parts": [{"text": combined}]}],
+                "generationConfig": {"temperature": 0.2},
+            }
         response = await client.post(
             url,
             headers={
