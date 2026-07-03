@@ -10,7 +10,9 @@ from app.services.cleaning_service import clean_dataframe
 from app.services.dashboard_service import build_dashboard
 from app.services.eda_service import generate_eda
 from app.services.ml_service import train_models
+from app.services.model_store import save_model_pipeline
 from app.services.profiling_service import profile_dataframe
+from app.services.validation_service import validate_dataframe
 from app.utils.json_utils import to_json_safe
 from app.utils.storage import DatasetSession, session_store
 
@@ -23,6 +25,9 @@ class AnalysisOrchestrator:
         session.profile = profile
         session.column_types = profile["column_types"]
         session.task_type = profile.get("task_type")
+        session.validation_report = validate_dataframe(df, profile["column_types"])
+        profile["validation_report"] = session.validation_report
+        session_store.persist(session)
         return profile
 
     def clean_session(self, session: DatasetSession) -> dict[str, Any]:
@@ -30,6 +35,7 @@ class AnalysisOrchestrator:
         cleaned, report = clean_dataframe(df, target_column=session.target_column)
         session.cleaned_df = cleaned
         session.cleaning_report = report
+        session_store.persist(session)
         return report
 
     def eda_session(self, session: DatasetSession) -> dict[str, Any]:
@@ -37,6 +43,7 @@ class AnalysisOrchestrator:
         column_types = session.column_types or session.profile.get("column_types", {}) if session.profile else {}
         eda = to_json_safe(generate_eda(df, column_types))
         session.eda = eda
+        session_store.persist(session)
         return eda
 
     def train_session(self, session: DatasetSession, target_column: str | None = None) -> dict[str, Any]:
@@ -54,9 +61,17 @@ class AnalysisOrchestrator:
 
         task_type = session.task_type or (session.profile or {}).get("task_type")
         ml_results = train_models(df, session.target_column, task_type=task_type)
+
+        pipeline = ml_results.pop("_best_pipeline", None)
+        if pipeline is not None:
+            model_path = save_model_pipeline(session.session_id, pipeline)
+            session.model_path = model_path
+            ml_results["model_saved"] = True
+            ml_results["model_path"] = str(model_path)
+
         session.ml_results = to_json_safe(ml_results)
-        session.ml_results = ml_results
         session.task_type = ml_results["task_type"]
+        session_store.persist(session)
         return ml_results
 
     async def ask_session(self, session: DatasetSession, question: str) -> dict[str, Any]:
@@ -70,9 +85,12 @@ class AnalysisOrchestrator:
             ml_results=session.ml_results,
             explainability=explainability,
             question=question,
+            chat_history=session.chat_history,
         )
         client = get_llm_client()
         llm_result = await client.chat(SYSTEM_PROMPT, context)
+        session_store.append_chat(session, "user", question)
+        session_store.append_chat(session, "assistant", llm_result["answer"])
         return {
             "question": question,
             "answer": llm_result["answer"],
@@ -94,6 +112,7 @@ class AnalysisOrchestrator:
             )
         )
         session.dashboard = dashboard
+        session_store.persist(session)
         return dashboard
 
 

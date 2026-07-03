@@ -21,11 +21,13 @@ def build_llm_context(
     ml_results: dict[str, Any] | None,
     explainability: dict[str, Any] | None,
     question: str,
+    chat_history: list[dict[str, str]] | None = None,
 ) -> str:
     column_types = profile.get("column_types") if profile else detect_column_types(df)
 
     sections = [
         f"User question: {question}",
+        _section_chat_history(chat_history),
         _section_dataset_overview(df, profile),
         _section_column_stats(df, column_types),
         _section_cleaning(cleaning_report),
@@ -34,6 +36,17 @@ def build_llm_context(
         _section_explainability(explainability),
     ]
     return "\n\n".join(section for section in sections if section)
+
+
+def _section_chat_history(chat_history: list[dict[str, str]] | None) -> str:
+    if not chat_history:
+        return ""
+    lines = ["## Recent Conversation"]
+    for msg in chat_history[-6:]:
+        role = msg.get("role", "user")
+        content = (msg.get("content") or "")[:500]
+        lines.append(f"- {role}: {content}")
+    return "\n".join(lines)
 
 
 def _section_dataset_overview(df: pd.DataFrame, profile: dict[str, Any] | None) -> str:
@@ -102,11 +115,17 @@ def _section_ml(ml_results: dict[str, Any] | None) -> str:
     metric_text = ", ".join(f"{k}={v}" for k, v in metrics.items() if k != "primary_score")
     leaderboard = ml_results.get("leaderboard", [])
     models = ", ".join(entry.get("model", "?") for entry in leaderboard if "model" in entry)
+    cv = ml_results.get("cross_validation", {})
+    cv_text = ""
+    if cv.get("mean") is not None:
+        cv_text = f"\n- Cross-validation ({cv.get('scoring')}): mean={cv['mean']:.4f}, std={cv.get('std', 0):.4f}"
+    warnings = ml_results.get("warnings") or []
+    warn_text = f"\n- Warnings: {'; '.join(warnings)}" if warnings else ""
     return (
         "## ML Results\n"
         f"- Task type: {ml_results.get('task_type')}\n"
         f"- Best model: {best}\n"
-        f"- Best metrics: {metric_text}\n"
+        f"- Best metrics: {metric_text}{cv_text}{warn_text}\n"
         f"- Models evaluated: {models}"
     )
 

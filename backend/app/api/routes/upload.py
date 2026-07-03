@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from app.config import settings
+from app.middleware.rate_limit import limiter
 from app.services.analysis_orchestrator import analysis_orchestrator
 from app.utils.data_loader import dataframe_preview
 from app.utils.storage import session_store
@@ -13,7 +14,8 @@ router = APIRouter(tags=["upload"])
 
 
 @router.post("/upload")
-async def upload_dataset(file: UploadFile = File(...)) -> dict:
+@limiter.limit(settings.rate_limit_upload)
+async def upload_dataset(request: Request, file: UploadFile = File(...)) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
 
@@ -39,6 +41,7 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {exc}") from exc
 
+    session_store.persist(session)
     return {
         "session_id": session.session_id,
         "filename": file.filename,

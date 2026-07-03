@@ -16,8 +16,10 @@ build/
 
 data/uploads/*
 data/processed/*
+data/models/*
 !data/uploads/.gitkeep
 !data/processed/.gitkeep
+data/app.db
 
 .DS_Store
 *.log

@@ -160,16 +160,36 @@ def _permutation_importance(
 def _scores_to_feature_list(names: list[str], scores: np.ndarray) -> list[dict[str, Any]]:
     scores = np.asarray(scores, dtype=np.float64)
     scores = np.nan_to_num(scores, nan=0.0)
-    total = scores.sum()
-    if total > 0:
-        scores = scores / total
+    aggregated: dict[str, float] = {}
+    for name, score in zip(names, scores):
+        source = _source_column(str(name))
+        aggregated[source] = aggregated.get(source, 0.0) + float(score)
 
-    pairs = sorted(zip(names, scores), key=lambda x: x[1], reverse=True)
+    total = sum(aggregated.values())
+    if total > 0:
+        aggregated = {k: v / total for k, v in aggregated.items()}
+
+    pairs = sorted(aggregated.items(), key=lambda x: x[1], reverse=True)
     return [
-        {"feature": _clean_feature_name(str(name)), "importance": round(float(val), 4)}
-        for name, val in pairs[:15]
+        {"feature": source, "importance": round(float(val), 4)}
+        for source, val in pairs[:15]
         if val > 0
     ]
+
+
+def _source_column(feature_name: str) -> str:
+    name = feature_name
+    for prefix in ("num__", "cat__", "freq__"):
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+            break
+    if name.endswith("_freq"):
+        return name[: -len("_freq")]
+    # One-hot: column name is everything before the last segment for known patterns
+    # e.g. Category_Fitness Equipment -> Category
+    if "_" in name:
+        return name.split("_", 1)[0]
+    return name.replace("_", " ")
 
 
 def _clean_feature_name(name: str) -> str:

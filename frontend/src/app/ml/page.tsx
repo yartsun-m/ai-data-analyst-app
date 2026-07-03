@@ -43,8 +43,26 @@ export default function MLPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await api.train(sessionId, targetColumn);
-      setMLResults(result.ml_results);
+      const started = await api.train(sessionId, targetColumn, true);
+      if (started.ml_results) {
+        setMLResults(started.ml_results);
+        return;
+      }
+      if (!started.job_id) throw new Error("No job id returned");
+      let attempts = 0;
+      while (attempts < 120) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const status = await api.trainStatus(started.job_id);
+        if (status.status === "completed" && status.ml_results) {
+          setMLResults(status.ml_results);
+          return;
+        }
+        if (status.status === "failed") {
+          throw new Error(status.error || "Training failed");
+        }
+        attempts += 1;
+      }
+      throw new Error("Training timed out");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Training failed");
     } finally {
@@ -149,6 +167,18 @@ export default function MLPage() {
             </Card>
           </div>
 
+          {mlResults.cross_validation?.mean != null && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Cross-Validation</CardTitle>
+                <CardDescription>
+                  {mlResults.cross_validation.scoring}: {mlResults.cross_validation.mean.toFixed(4)} ±{" "}
+                  {(mlResults.cross_validation.std ?? 0).toFixed(4)}
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Model Leaderboard</CardTitle>
@@ -170,8 +200,7 @@ export default function MLPage() {
             <CardHeader>
               <CardTitle>Feature Importance</CardTitle>
               <CardDescription>
-                Method: {mlResults.explainability?.method || "feature_importance"} · scores are normalized relative
-                importance (0–1)
+                Method: {mlResults.explainability?.method || "feature_importance"} · aggregated by source column
               </CardDescription>
             </CardHeader>
             <CardContent>

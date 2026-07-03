@@ -29,6 +29,8 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [modelUsed, setModelUsed] = useState<string | null>(null);
+
   useEffect(() => {
     if (!sessionId) router.push("/");
   }, [sessionId, router]);
@@ -37,13 +39,33 @@ export default function ChatPage() {
     if (!sessionId || !text.trim()) return;
     setLoading(true);
     setError(null);
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    setModelUsed(null);
+    setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setQuestion("");
     try {
-      const result = await api.ask(sessionId, text);
-      setMessages((prev) => [...prev, { role: "assistant", content: result.answer }]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Question failed");
+      let answer = "";
+      for await (const token of api.askStream(sessionId, text)) {
+        answer += token;
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { role: "assistant", content: answer };
+          return copy;
+        });
+      }
+      setModelUsed("gemini");
+    } catch {
+      try {
+        const result = await api.ask(sessionId, text, false);
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { role: "assistant", content: result.answer };
+          return copy;
+        });
+        setModelUsed(result.model_used || null);
+      } catch (err) {
+        setMessages((prev) => prev.slice(0, -2));
+        setError(err instanceof Error ? err.message : "Question failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -108,6 +130,7 @@ export default function ChatPage() {
       </form>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {modelUsed && <p className="text-xs text-muted-foreground">Model: {modelUsed}</p>}
     </div>
   );
 }

@@ -1,146 +1,153 @@
 # AI Data Analyst
 
-Production-style full-stack web application for uploading any tabular dataset (CSV/Excel), profiling it, cleaning it, running EDA, training ML models, chatting with an LLM using summarized context, and viewing an auto-generated dashboard.
+[![CI](https://github.com/yartsun-m/ai-data-analyst-app/actions/workflows/ci.yml/badge.svg)](https://github.com/yartsun-m/ai-data-analyst-app/actions/workflows/ci.yml)
+
+**Live demo:** [Frontend (Vercel)](https://ai-data-analyst-app-sigma.vercel.app) · [Backend API (Render)](https://ai-data-analyst-app-w3cu.onrender.com/docs)
+
+Production-style full-stack app: upload any tabular dataset (CSV/Excel), profile & validate it, clean it, run EDA, train ML models with cross-validation, chat with Gemini using summarized context, and export reports.
 
 ## Features
 
-- **Dataset upload** — CSV/Excel with preview, type detection, and summary stats
-- **Automatic profiling** — column types, missing values, duplicates, ML task hints
-- **Cleaning pipeline** — imputation, deduplication, datetime parsing, categorical encoding
-- **EDA** — Plotly histograms, correlation heatmap, boxplots, category bars, time series
-- **AutoML lite** — linear/logistic regression, random forest, XGBoost with metrics
-- **Explainability** — feature importance + optional SHAP summaries
-- **LLM chat** — natural language Q&A using structured summaries (no raw rows sent)
-- **Dashboard** — KPIs, charts, report sections, downloadable JSON report
+| Area | Capabilities |
+|------|----------------|
+| **Data** | Upload, type/role detection, Pandera validation, cleaning, paginated spreadsheet viewer, CSV export |
+| **EDA** | Plotly histograms, correlation heatmap, boxplots, category bars, time series |
+| **ML** | AutoML (LR, RF, XGBoost), 3-fold CV, RandomizedSearch tuning on RF, SHAP/coefficients, residual diagnostics, model persistence, `/predict` |
+| **LLM** | Gemini multi-key fallback, conversation memory, streaming chat (SSE), context from stats only |
+| **Ops** | SQLite session persistence, background training jobs, structured logging, rate limiting, CI tests |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Frontend["Next.js (Vercel)"]
+    Upload --> Overview --> EDA --> ML --> Chat --> Dashboard
+    DataViewer[Dataset Viewer]
+  end
+
+  subgraph Backend["FastAPI (Render)"]
+    API[Routes] --> Orchestrator
+    Orchestrator --> Profile
+    Orchestrator --> Clean
+    Orchestrator --> EDA_Svc[EDA Service]
+    Orchestrator --> ML[ML Service]
+    Orchestrator --> LLM[Gemini Client]
+    Orchestrator --> SQLite[(SQLite)]
+    ML --> Models[(joblib artifacts)]
+  end
+
+  Frontend -->|REST / SSE| API
+```
+
+**Data flow:** Upload stores file on disk + session in SQLite → each step updates session JSON → ML saves fitted `Pipeline` to `data/models/` → LLM receives aggregates only (never raw rows).
 
 ## Tech Stack
 
 | Layer | Stack |
 |-------|-------|
-| Backend | Python, FastAPI, Pandas, NumPy, Scikit-learn, XGBoost, Plotly, SHAP, Google Gemini API |
-| Frontend | Next.js (App Router), TypeScript, Tailwind CSS, shadcn-style UI, Plotly.js |
-| DevOps | Docker, docker-compose, `.env` configuration |
-
-## Project Structure
-
-```
-ai-data-analyst/
-├── backend/
-│   ├── app/
-│   │   ├── api/routes/       # FastAPI endpoints
-│   │   ├── services/         # Business logic
-│   │   ├── ml/               # Explainability
-│   │   ├── llm/              # LLM client + context builder
-│   │   └── utils/            # Loaders, type detection, session store
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── src/app/              # Pages: upload, overview, eda, ml, chat, dashboard
-│   ├── src/components/
-│   └── Dockerfile
-├── sample-data/
-├── docker-compose.yml
-├── .env.example
-└── README.md
-```
+| Backend | Python 3.11, FastAPI, Pandas, scikit-learn, XGBoost, SHAP, Pandera, joblib, Gemini API, SQLite |
+| Frontend | Next.js 15, TypeScript, Tailwind, Plotly.js |
+| DevOps | Docker, GitHub Actions CI, Vercel + Render |
 
 ## Quick Start (Docker)
 
-1. **Clone / enter the project**
+```bash
+cp .env.example .env
+# Set GEMINI_API_KEYS for LLM chat (optional)
+docker compose up --build
+```
 
-   ```bash
-   cd ai-data-analyst
-   ```
+- Frontend: http://localhost:3000
+- API docs: http://localhost:8000/docs
+- LLM health: http://localhost:8000/health/llm
 
-2. **Configure environment**
+## Example Workflows
 
-   ```bash
-   cp .env.example .env
-   ```
+### 1. Sales classification (`sample-data/sales_sample.csv`)
+1. Upload → Overview → Run Cleaning
+2. EDA → inspect region/category charts
+3. ML → target `region` → train (async job polls automatically)
+4. Chat → *"Which features matter most?"*
+5. Dashboard → download HTML report
 
-   Set `GEMINI_API_KEYS` (comma-separated) for LLM chat (optional — app works without it using fallback summaries).
+### 2. Product pricing regression (`sample-data/products-1000.csv`)
+1. Upload → target `Price`
+2. ML → expect negative R² warning (price not predictable from metadata)
+3. Review cross-validation + aggregated feature importance by column
+4. Export cleaned CSV from Overview
 
-3. **Run**
-
-   ```bash
-   docker-compose up --build
-   ```
-
-4. **Open the app**
-
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8000
-   - API docs: http://localhost:8000/docs
-
-5. **Try sample data**
-
-   Upload `sample-data/sales_sample.csv` and walk through Upload → Overview → EDA → ML → Chat → Dashboard.
+### 3. Customer exploration (`sample-data/customers-1000.csv`)
+1. Upload → validation report flags identifier columns
+2. Use **Data** page for full paginated browse
+3. ML → target `Country` (classification)
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/upload` | Upload CSV/Excel, profile dataset |
-| GET | `/profile?session_id=` | Get/refine profile (optional `target_column`) |
-| POST | `/clean` | Run cleaning pipeline |
-| GET | `/eda?session_id=` | Generate EDA charts |
-| POST | `/train` | Train ML models on target column |
-| POST | `/ask` | Ask LLM question (summarized context only) |
-| GET | `/dashboard?session_id=` | Auto-generated dashboard |
+| POST | `/upload` | Upload CSV/Excel, profile + validate |
+| GET | `/profile` | Profile (optional `target_column`) |
+| GET | `/dataset` | Paginated dataset viewer |
+| GET | `/export` | Download raw/cleaned CSV |
+| POST | `/clean` | Cleaning pipeline |
+| GET | `/eda` | EDA charts |
+| POST | `/train` | Start async training (`async_mode: true`) |
+| GET | `/train/status` | Poll training job |
+| POST | `/predict` | Score rows with saved model |
+| POST | `/ask` | LLM Q&A (`stream: true` for SSE) |
+| GET | `/dashboard` | Dashboard JSON |
+| GET | `/report` | HTML report download |
 | GET | `/health` | Health check |
-
-## Local Development (without Docker)
-
-### Backend
-
-Requires **Python 3.11 or 3.12** (scikit-learn/XGBoost do not yet support 3.14).
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
-npm run dev
-```
+| GET | `/health/llm` | Gemini key probe |
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GEMINI_API_KEYS` | Comma-separated Google AI API keys | empty |
-| `GEMINI_BASE_URL` | Gemini API base URL | `https://generativelanguage.googleapis.com/v1beta` |
-| `GEMINI_MODELS` | Comma-separated models, priority order | see `.env.example` |
-| `GEMINI_MAX_RETRIES` | Retries per model/key before fallback | `2` |
-| `CORS_ORIGINS` | Allowed frontend origins | `http://localhost:3000` |
-| `NEXT_PUBLIC_API_URL` | Frontend → backend URL | `http://localhost:8000` |
-| `MAX_UPLOAD_SIZE_MB` | Upload limit | `50` |
+### Backend (Render)
 
-## Architecture Notes
+| Variable | Description |
+|----------|-------------|
+| `GEMINI_API_KEYS` | Comma-separated AI Studio keys |
+| `GEMINI_MODELS` | Model priority list |
+| `CORS_ORIGINS` | Frontend URL(s) |
+| `CV_FOLDS` | Cross-validation folds (default 3) |
+| `ENABLE_HYPERPARAMETER_TUNING` | RF RandomizedSearch (default true) |
 
-- **Dataset-agnostic** — no fixed schema; types inferred per column
-- **Layered backend** — routes → services → ml/llm/utils
-- **Session-based** — in-memory session store (swap for Redis/DB in production)
-- **LLM safety** — context builder sends aggregates/stats only, never raw rows
-- **Modular services** — profiling, cleaning, EDA, ML, dashboard run independently
+### Frontend (Vercel)
 
-## Suggested Workflow
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_API_URL` | Backend URL (no trailing slash) |
 
-1. Upload dataset on **Upload** page
-2. Review types and run cleaning on **Overview**
-3. Explore charts on **EDA**
-4. Select target column and train on **ML**
-5. Ask questions on **Chat**
-6. Review KPIs and download report on **Dashboard**
+## Testing
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+CI runs backend pytest + frontend build on every push to `main`.
+
+## Deployment
+
+| Service | Platform | Notes |
+|---------|----------|-------|
+| Frontend | Vercel | Set `NEXT_PUBLIC_API_URL`, redeploy after changes |
+| Backend | Render | Set `GEMINI_*`, `CORS_ORIGINS`; mount disk at `/app/data` for persistence |
+
+## Project Structure
+
+```
+backend/app/
+  api/routes/     # FastAPI endpoints
+  services/       # Business logic + jobs + validation
+  ml/             # Explainability, encoders
+  llm/            # Gemini client, context builder
+  db/             # SQLite persistence
+  middleware/     # Logging, rate limits
+frontend/src/app/ # Upload, Overview, Data, EDA, ML, Chat, Dashboard
+```
 
 ## License
 
-MIT — portfolio / educational use.
+MIT — see [LICENSE](LICENSE).

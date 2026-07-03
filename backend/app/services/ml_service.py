@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import platform
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import sklearn
 from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -11,13 +13,14 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
+    confusion_matrix,
     f1_score,
     mean_absolute_error,
     mean_squared_error,
     r2_score,
     roc_auc_score,
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import RandomizedSearchCV, cross_val_score, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 
@@ -28,6 +31,7 @@ try:
 except ImportError:
     HAS_XGBOOST = False
 
+from app.config import settings
 from app.ml.encoders import FrequencyEncoder
 from app.ml.explainability import build_explainability
 from app.services.profiling_service import detect_task_type
@@ -45,8 +49,10 @@ def train_models(
     target_column: str,
     task_type: str | None = None,
     test_size: float = 0.2,
-    random_state: int = 42,
+    random_state: int | None = None,
 ) -> dict[str, Any]:
+    random_state = random_state if random_state is not None else settings.random_state
+
     if target_column not in df.columns:
         raise ValueError(f"Target column '{target_column}' not found")
 
@@ -57,8 +63,6 @@ def train_models(
     y_raw = work[target_column]
     feature_cols = [col for col in work.columns if col != target_column and col not in excluded]
     if not feature_cols:
-        # Everything except the target was an identifier/contact field. As a last
-        # resort, allow all remaining columns so the user still gets a result.
         feature_cols = [col for col in work.columns if col != target_column]
     if not feature_cols:
         raise ValueError(
@@ -71,13 +75,19 @@ def train_models(
     if inferred == "time_series":
         inferred = "regression"
     if inferred == "unsuitable":
-        # Fall back based on the target's data type rather than refusing outright.
         inferred = "regression" if pd.api.types.is_numeric_dtype(y_raw) else "classification"
 
     metadata = {
         "excluded_feature_columns": excluded,
         "feature_columns": feature_cols,
         "warnings": [],
+        "reproducibility": {
+            "random_state": random_state,
+            "sklearn_version": sklearn.__version__,
+            "python_version": platform.python_version(),
+            "rows_used": int(len(work)),
+            "cv_folds": settings.cv_folds,
+        },
     }
 
     if inferred == "classification":
@@ -110,6 +120,8 @@ def train_models(
         task_type=result.get("task_type", inferred),
         feature_importance=result.get("feature_importance"),
     )
+    if best_pipeline is not None:
+        result["_best_pipeline"] = best_pipeline
     return result
 
 
@@ -124,7 +136,6 @@ def _infer_type(series: pd.Series) -> str:
 
 
 def _prepare_features(X: pd.DataFrame) -> tuple[pd.DataFrame, list[str], list[str], list[str]]:
-    """Split features into numeric, low-cardinality (one-hot) and high-cardinality (frequency)."""
     work = sanitize_features_for_ml(X)
     ohe_limit = onehot_max_categories(len(work))
     numeric_cols = work.select_dtypes(include=[np.number]).columns.tolist()
@@ -190,6 +201,74 @@ def _split_data(
         except ValueError:
             pass
     return train_test_split(X, y, test_size=test_size, random_state=random_state)
+
+
+def _tune_random_forest(pipeline: Pipeline, X_train, y_train, task_type: str, random_state: int) -> Pipeline:
+    if not settings.enable_hyperparameter_tuning:
+        pipeline.fit(X_train, y_train)
+        return pipeline
+
+    param_dist = {
+        "model__n_estimators": [50, 100, 150],
+        "model__max_depth": [None, 8, 16],
+        "model__min_samples_leaf": [1, 2, 4],
+    }
+    scoring = "r2" if task_type == "regression" else "f1_weighted"
+    search = RandomizedSearchCV(
+        pipeline,
+        param_distributions=param_dist,
+        n_iter=6,
+        cv=min(settings.cv_folds, 3),
+        random_state=random_state,
+        n_jobs=1,
+        scoring=scoring,
+        error_score="raise",
+    )
+    try:
+        search.fit(X_train, y_train)
+        return search.best_estimator_
+    except Exception:
+        pipeline.fit(X_train, y_train)
+        return pipeline
+
+
+def _cross_validate(pipeline: Pipeline, X, y, task_type: str, random_state: int) -> dict[str, Any]:
+    scoring = "r2" if task_type == "regression" else "f1_weighted"
+    folds = min(settings.cv_folds, max(2, int(len(y) // 10)))
+    try:
+        scores = cross_val_score(pipeline, X, y, cv=folds, scoring=scoring, n_jobs=1)
+        return {
+            "folds": folds,
+            "scoring": scoring,
+            "mean": float(scores.mean()),
+            "std": float(scores.std()),
+            "scores": [float(s) for s in scores],
+        }
+    except Exception as exc:
+        return {"folds": folds, "scoring": scoring, "error": str(exc)}
+
+
+def _regression_diagnostics(y_true, y_pred) -> dict[str, Any]:
+    residuals = np.asarray(y_true, dtype=float) - np.asarray(y_pred, dtype=float)
+    sample_n = min(50, len(residuals))
+    return {
+        "residual_mean": float(np.mean(residuals)),
+        "residual_std": float(np.std(residuals)),
+        "baseline_note": "A mean predictor always has R²=0; negative R² means worse than baseline.",
+        "actual_vs_predicted": [
+            {"actual": float(y_true[i]), "predicted": float(y_pred[i])}
+            for i in range(sample_n)
+        ],
+    }
+
+
+def _classification_diagnostics(y_true, y_pred, label_classes: list | None) -> dict[str, Any]:
+    labels = label_classes or sorted(set(y_true) | set(y_pred))
+    cm = confusion_matrix(y_true, y_pred, labels=list(range(len(labels))) if label_classes else None)
+    return {
+        "confusion_matrix": cm.tolist(),
+        "labels": labels,
+    }
 
 
 def _train_regression(X: pd.DataFrame, y: pd.Series, test_size: float, random_state: int) -> dict[str, Any]:
@@ -271,7 +350,10 @@ def _evaluate_models(
     for name, estimator in models.items():
         pipeline = Pipeline([("preprocessor", clone(preprocessor)), ("model", estimator)])
         try:
-            pipeline.fit(X_train, y_train)
+            if name == "random_forest":
+                pipeline = _tune_random_forest(pipeline, X_train, y_train, task_type, random_state)
+            else:
+                pipeline.fit(X_train, y_train)
             preds = pipeline.predict(X_test)
             metrics = _compute_metrics(task_type, y_test, preds, pipeline, X_test)
             score = metrics.get("primary_score", float("-inf"))
@@ -284,6 +366,15 @@ def _evaluate_models(
         except Exception as exc:
             leaderboard.append({"model": name, "error": str(exc)})
 
+    cv_results = _cross_validate(best_model, X, y, task_type, random_state) if best_model else {}
+    diagnostics: dict[str, Any] = {}
+    if best_model is not None:
+        preds = best_model.predict(X_test)
+        if task_type == "regression":
+            diagnostics = _regression_diagnostics(y_test, preds)
+        else:
+            diagnostics = _classification_diagnostics(y_test, preds, label_classes)
+
     feature_importance = _extract_feature_importance(best_model, X.columns.tolist()) if best_model else []
 
     return {
@@ -292,6 +383,8 @@ def _evaluate_models(
         "best_metrics": best_metrics,
         "leaderboard": leaderboard,
         "feature_importance": feature_importance,
+        "cross_validation": cv_results,
+        "diagnostics": diagnostics,
         "train_size": int(len(X_train)),
         "test_size": int(len(X_test)),
         "label_classes": label_classes,
@@ -319,6 +412,8 @@ def _compute_metrics(task_type: str, y_true, y_pred, pipeline, X_test) -> dict[s
 
 
 def _extract_feature_importance(pipeline, original_columns: list[str]) -> list[dict[str, Any]]:
+    from app.ml.explainability import _scores_to_feature_list
+
     model = pipeline.named_steps.get("model")
     if model is None:
         return []
@@ -333,19 +428,11 @@ def _extract_feature_importance(pipeline, original_columns: list[str]) -> list[d
     if importances is None:
         return []
 
-    names = _get_feature_names(pipeline, original_columns)
-    pairs = sorted(zip(names, importances), key=lambda x: x[1], reverse=True)
-    total = float(np.sum(importances))
-    if total > 0:
-        importances = importances / total
-    return [{"feature": str(name), "importance": round(float(val), 4)} for name, val in pairs[:15]]
-
-
-def _get_feature_names(pipeline, original_columns: list[str]) -> list[str]:
     preprocessor = pipeline.named_steps.get("preprocessor")
+    names = original_columns
     if preprocessor is not None and hasattr(preprocessor, "get_feature_names_out"):
         try:
-            return preprocessor.get_feature_names_out().tolist()
+            names = preprocessor.get_feature_names_out().tolist()
         except Exception:
             pass
-    return original_columns
+    return _scores_to_feature_list(names, importances)

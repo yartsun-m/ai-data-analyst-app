@@ -13,7 +13,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-RUN mkdir -p data/uploads data/processed
+RUN mkdir -p data/uploads data/processed data/models
 
 EXPOSE 8000
 

@@ -107,11 +107,35 @@ export default function OverviewPage() {
           <Button variant="outline" onClick={handleProfileRefresh} disabled={loading}>
             Update Profile
           </Button>
+          <Button variant="outline" onClick={() => api.exportDataset(sessionId, cleaningReport ? "cleaned" : "raw", filename ?? undefined)}>
+            Export CSV
+          </Button>
           <Button onClick={handleClean} disabled={loading}>
             Run Cleaning Pipeline
           </Button>
         </CardContent>
       </Card>
+
+      {profile.validation_report && (
+        <Card className={profile.validation_report.passed ? "" : "border-amber-300 bg-amber-50/50"}>
+          <CardHeader>
+            <CardTitle>Data Validation</CardTitle>
+            <CardDescription>
+              {profile.validation_report.passed ? "Checks passed" : "Issues detected"} ·{" "}
+              {profile.validation_report.checks_run} checks on {profile.validation_report.rows_validated} rows
+            </CardDescription>
+          </CardHeader>
+          {profile.validation_report.issues?.length > 0 && (
+            <CardContent>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {profile.validation_report.issues.map((issue: string) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       {profile.task_type && (
         <Card>

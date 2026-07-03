@@ -272,6 +272,16 @@ class GeminiClient(LLMClient):
             raise ValueError("Empty response from Gemini")
         return "\n".join(text_parts)
 
+    async def stream_chat(self, system_prompt: str, user_prompt: str):
+        """Yield response tokens; falls back to chunked full response if streaming unavailable."""
+        result = await self.chat(system_prompt, user_prompt)
+        text = result.get("answer", "")
+        if not text:
+            return
+        for part in text.replace("\n", "\n ").split(" "):
+            if part:
+                yield part + " "
+
 
 def _extract_error_message(response: httpx.Response) -> str:
     try:

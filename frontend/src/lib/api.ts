@@ -33,6 +33,12 @@ export interface ProfileData {
   ml_excluded_columns?: string[];
   target_column: string | null;
   task_type: string | null;
+  validation_report?: {
+    passed: boolean;
+    issues: string[];
+    checks_run: number;
+    rows_validated: number;
+  };
 }
 
 export interface CleaningReport {
@@ -67,10 +73,30 @@ export interface MLResults {
   warnings?: string[];
   excluded_feature_columns?: string[];
   feature_columns?: string[];
+  cross_validation?: { mean?: number; std?: number; scoring?: string; scores?: number[] };
+  diagnostics?: Record<string, unknown>;
+  model_saved?: boolean;
   explainability?: {
     method: string;
     top_features: FeatureImportanceItem[];
   };
+}
+
+export interface TrainJobResponse {
+  session_id: string;
+  job_id?: string;
+  status?: string;
+  message?: string;
+  ml_results?: MLResults;
+}
+
+export interface TrainStatusResponse {
+  job_id: string;
+  session_id: string;
+  status: string;
+  progress: number;
+  error?: string;
+  ml_results?: MLResults;
 }
 
 export interface DashboardData {
@@ -155,19 +181,68 @@ export const api = {
       `/eda?session_id=${sessionId}`,
     ),
 
-  train: (sessionId: string, targetColumn: string) =>
-    request<{ ml_results: MLResults }>("/train", {
+  train: (sessionId: string, targetColumn: string, asyncMode = true) =>
+    request<TrainJobResponse>("/train", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, target_column: targetColumn }),
+      body: JSON.stringify({
+        session_id: sessionId,
+        target_column: targetColumn,
+        async_mode: asyncMode,
+      }),
     }),
 
-  ask: (sessionId: string, question: string) =>
+  trainStatus: (jobId: string) =>
+    request<TrainStatusResponse>(`/train/status?job_id=${encodeURIComponent(jobId)}`),
+
+  ask: (sessionId: string, question: string, stream = false) =>
     request<{ question: string; answer: string; model_used?: string }>("/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, question }),
+      body: JSON.stringify({ session_id: sessionId, question, stream }),
     }),
+
+  askStream: async function* (sessionId: string, question: string) {
+    const response = await fetch(`${API_BASE}/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, question, stream: true }),
+    });
+    if (!response.ok || !response.body) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || "Stream failed");
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const payload = JSON.parse(line.slice(6));
+        if (payload.token) yield payload.token as string;
+        if (payload.done) return;
+      }
+    }
+  },
+
+  exportDataset: async (sessionId: string, variant: "raw" | "cleaned" = "raw", filename?: string) => {
+    const response = await fetch(
+      `${API_BASE}/export?session_id=${encodeURIComponent(sessionId)}&variant=${variant}`,
+    );
+    if (!response.ok) throw new Error("Export failed");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename || `dataset-${variant}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
 
   dashboard: (sessionId: string) =>
     request<{ dashboard: DashboardData }>(`/dashboard?session_id=${sessionId}`),
