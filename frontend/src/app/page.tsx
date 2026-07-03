@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { DataTable } from "@/components/data-table";
+import { DatasetViewerModal } from "@/components/dataset-viewer-modal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
@@ -11,9 +12,10 @@ import { useSession } from "@/lib/session";
 
 export default function UploadPage() {
   const router = useRouter();
-  const { setFromUpload, profile, preview, filename } = useSession();
+  const { sessionId, setFromUpload, profile, preview, filename } = useSession();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const handleUpload = async (file: File | null) => {
     if (!file) return;
@@ -58,19 +60,38 @@ export default function UploadPage() {
         </CardContent>
       </Card>
 
-      {profile && preview && (
+      {profile && preview && sessionId && (
         <Card>
-          <CardHeader>
-            <CardTitle>Latest upload: {filename}</CardTitle>
-            <CardDescription>
-              {profile.shape.rows} rows · {profile.shape.columns} columns · {profile.duplicate_rows} duplicates
-            </CardDescription>
+          <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Latest upload: {filename}</CardTitle>
+              <CardDescription>
+                {profile.shape.rows} rows · {profile.shape.columns} columns · {profile.duplicate_rows} duplicates
+              </CardDescription>
+            </div>
+            <Button variant="outline" onClick={() => setViewerOpen(true)}>
+              Open full dataset
+            </Button>
           </CardHeader>
           <CardContent className="space-y-4">
             <DataTable rows={preview} />
-            <Button onClick={() => router.push("/overview")}>Continue to Overview</Button>
+            <div className="flex gap-3">
+              <Button onClick={() => router.push("/overview")}>Continue to Overview</Button>
+              <Button variant="secondary" onClick={() => router.push("/dataset")}>
+                Full page viewer
+              </Button>
+            </div>
           </CardContent>
         </Card>
+      )}
+
+      {sessionId && (
+        <DatasetViewerModal
+          open={viewerOpen}
+          onClose={() => setViewerOpen(false)}
+          sessionId={sessionId}
+          filename={filename ?? undefined}
+        />
       )}
     </div>
   );

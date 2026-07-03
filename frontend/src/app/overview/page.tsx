@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { DataTable } from "@/components/data-table";
+import { DatasetViewerModal } from "@/components/dataset-viewer-modal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -16,6 +17,7 @@ export default function OverviewPage() {
     sessionId,
     profile,
     preview,
+    filename,
     cleaningReport,
     targetColumn,
     setProfile,
@@ -24,6 +26,7 @@ export default function OverviewPage() {
   } = useSession();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   useEffect(() => {
     if (!sessionId) router.push("/");
@@ -159,14 +162,35 @@ export default function OverviewPage() {
 
       {preview && (
         <Card>
-          <CardHeader>
-            <CardTitle>Preview</CardTitle>
+          <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Preview</CardTitle>
+              <CardDescription>
+                Lightweight sample ({preview.length} rows). Open the full viewer to browse every row and column.
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setViewerOpen(true)}>
+                Open full dataset
+              </Button>
+              <Button variant="secondary" onClick={() => router.push("/dataset")}>
+                Full page viewer
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <DataTable rows={preview} />
           </CardContent>
         </Card>
       )}
+
+      <DatasetViewerModal
+        open={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+        sessionId={sessionId}
+        filename={filename ?? undefined}
+        hasCleaned={!!cleaningReport}
+      />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

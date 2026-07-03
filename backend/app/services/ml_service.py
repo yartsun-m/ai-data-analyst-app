@@ -91,6 +91,14 @@ def train_models(
 
     result.update(metadata)
 
+    if result.get("task_type") == "regression":
+        r2 = result.get("best_metrics", {}).get("r2")
+        if r2 is not None and r2 < 0:
+            result["warnings"].append(
+                f"R² is {r2:.4f} (negative) — the model performs worse than a baseline that always "
+                "predicts the mean target value. Treat metrics and feature importance as unreliable."
+            )
+
     best_pipeline = result.pop("_best_pipeline", None)
     y_for_explain = y_raw
     if result.get("task_type") == "classification" and result.get("label_mapping"):

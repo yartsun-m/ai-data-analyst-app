@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import ask, clean, dashboard, eda, profile, report, train, upload
+from app.api.routes import ask, clean, dashboard, dataset, eda, profile, report, train, upload
 from app.config import settings
 
 app = FastAPI(title=settings.app_name, version="1.0.0")
@@ -17,6 +17,7 @@ app.add_middleware(
 )
 
 app.include_router(upload.router)
+app.include_router(dataset.router)
 app.include_router(profile.router)
 app.include_router(clean.router)
 app.include_router(eda.router)

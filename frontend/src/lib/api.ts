@@ -83,6 +83,38 @@ export interface DashboardData {
   report_sections: Array<{ title: string; content: string }>;
 }
 
+export interface DatasetColumn {
+  name: string;
+  type: string;
+}
+
+export interface DatasetPageResponse {
+  session_id: string;
+  variant: "raw" | "cleaned";
+  filename: string;
+  has_cleaned: boolean;
+  columns: DatasetColumn[];
+  rows: Record<string, unknown>[];
+  page: number;
+  page_size: number;
+  total_rows: number;
+  filtered_rows: number;
+  total_pages: number;
+  row_offset: number;
+  sort_by: string | null;
+  sort_order: "asc" | "desc";
+  search: string | null;
+}
+
+export interface DatasetQuery {
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
+  search?: string;
+  variant?: "raw" | "cleaned";
+}
+
 export const api = {
   upload: async (file: File): Promise<UploadResponse> => {
     const form = new FormData();
@@ -98,6 +130,17 @@ export const api = {
       preview: Record<string, unknown>[];
       active_columns: string[];
     }>(`/profile?${params}`);
+  },
+
+  dataset: (sessionId: string, query: DatasetQuery = {}) => {
+    const params = new URLSearchParams({ session_id: sessionId });
+    if (query.page) params.set("page", String(query.page));
+    if (query.pageSize) params.set("page_size", String(query.pageSize));
+    if (query.sortBy) params.set("sort_by", query.sortBy);
+    if (query.sortOrder) params.set("sort_order", query.sortOrder);
+    if (query.search) params.set("search", query.search);
+    if (query.variant) params.set("variant", query.variant);
+    return request<DatasetPageResponse>(`/dataset?${params}`);
   },
 
   clean: (sessionId: string, targetColumn?: string) =>

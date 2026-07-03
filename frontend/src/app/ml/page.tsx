@@ -93,12 +93,12 @@ export default function MLPage() {
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {mlResults?.warnings && mlResults.warnings.length > 0 && (
-        <Card>
+        <Card className="border-amber-300 bg-amber-50/50">
           <CardHeader>
             <CardTitle className="text-base">Notes</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+            <ul className="list-disc space-y-1 pl-5 text-sm text-amber-950">
               {mlResults.warnings.map((note) => (
                 <li key={note}>{note}</li>
               ))}
@@ -122,9 +122,23 @@ export default function MLPage() {
                 <CardTitle>{mlResults.best_model}</CardTitle>
               </CardHeader>
             </Card>
-            <Card>
+            <Card
+              className={
+                mlResults.task_type === "regression" &&
+                mlResults.best_metrics.r2 != null &&
+                mlResults.best_metrics.r2 < 0
+                  ? "border-amber-300 bg-amber-50/50"
+                  : undefined
+              }
+            >
               <CardHeader>
-                <CardDescription>Primary Metric</CardDescription>
+                <CardDescription>
+                  Primary Metric
+                  {mlResults.task_type === "regression" &&
+                    mlResults.best_metrics.r2 != null &&
+                    mlResults.best_metrics.r2 < 0 &&
+                    " (below baseline)"}
+                </CardDescription>
                 <CardTitle>
                   {mlResults.best_metrics.r2 ??
                     mlResults.best_metrics.f1_weighted ??
