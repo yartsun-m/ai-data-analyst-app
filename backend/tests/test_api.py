@@ -69,7 +69,7 @@ def test_upload_and_dataset_pagination(client, tmp_path):
     csv_content = "a,b,target\n1,2,10\n3,4,20\n5,6,30\n"
     files = {"file": ("test.csv", csv_content, "text/csv")}
     upload = client.post("/upload", files=files)
-    assert upload.status_code == 200
+    assert upload.status_code == 200, upload.text
     session_id = upload.json()["session_id"]
 
     page = client.get(f"/dataset?session_id={session_id}&page=1&page_size=2")
