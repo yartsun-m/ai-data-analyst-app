@@ -126,6 +126,17 @@ def test_mean_encoder_fit():
     assert out[0, 0] > 0
 
 
+def test_regression_diagnostics_non_sequential_index():
+    from app.services.ml_service import _regression_diagnostics
+    import pandas as pd
+
+    y_true = pd.Series([10.0, 20.0, 30.0], index=[5, 10, 15])
+    y_pred = pd.Series([11.0, 19.0, 31.0], index=[5, 10, 15])
+    result = _regression_diagnostics(y_true, y_pred)
+    assert len(result["actual_vs_predicted"]) == 3
+    assert result["actual_vs_predicted"][0]["actual"] == 10.0
+
+
 def test_clean_endpoint(client):
     csv_content = "a,b,target\n1,2,10\n3,4,20\n5,6,30\n"
     files = {"file": ("test.csv", csv_content, "text/csv")}

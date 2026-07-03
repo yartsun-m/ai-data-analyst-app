@@ -253,14 +253,16 @@ def _cross_validate(pipeline: Pipeline, X, y, task_type: str, random_state: int)
 
 
 def _regression_diagnostics(y_true, y_pred) -> dict[str, Any]:
-    residuals = np.asarray(y_true, dtype=float) - np.asarray(y_pred, dtype=float)
+    y_true_arr = np.asarray(y_true, dtype=float).ravel()
+    y_pred_arr = np.asarray(y_pred, dtype=float).ravel()
+    residuals = y_true_arr - y_pred_arr
     sample_n = min(50, len(residuals))
     return {
         "residual_mean": float(np.mean(residuals)),
         "residual_std": float(np.std(residuals)),
         "baseline_note": "A mean predictor always has R²=0; negative R² means worse than baseline.",
         "actual_vs_predicted": [
-            {"actual": float(y_true[i]), "predicted": float(y_pred[i])}
+            {"actual": float(y_true_arr[i]), "predicted": float(y_pred_arr[i])}
             for i in range(sample_n)
         ],
     }
